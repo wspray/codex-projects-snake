@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createInitialState, changeDirection, step, Direction } from './game/snake'
 
 const TICK_MS = 120
@@ -7,10 +7,18 @@ const CELL_SIZE = 20
 
 const state = ref(createInitialState({ gridSize: 20 }))
 let intervalId = null
+let biteTimeoutId = null
 
 const gridSize = computed(() => state.value.gridSize)
 const score = computed(() => state.value.score)
 const status = computed(() => state.value.status)
+const bite = ref(false)
+const themes = [
+  { id: 'neon', label: '霓虹街机' },
+  { id: 'mist', label: '晨雾森林' },
+  { id: 'citrus', label: '柑橘日光' }
+]
+const theme = ref('neon')
 
 const boardStyle = computed(() => ({
   '--grid-size': gridSize.value,
@@ -27,6 +35,13 @@ const isPaused = computed(() => status.value === 'paused')
 const isDead = computed(() => status.value === 'dead')
 
 const foodVisible = computed(() => state.value.food.x >= 0 && state.value.food.y >= 0)
+const headDirection = computed(() => {
+  const dir = state.value.dir
+  if (dir === Direction.up) return 'up'
+  if (dir === Direction.down) return 'down'
+  if (dir === Direction.left) return 'left'
+  return 'right'
+})
 
 function setDirection(nextDir) {
   state.value = changeDirection(state.value, nextDir)
@@ -94,11 +109,33 @@ function stopLoop() {
 onMounted(() => {
   window.addEventListener('keydown', handleKey, { passive: false })
   startLoop()
+  const stored = window.localStorage.getItem('snake-theme')
+  if (stored && themes.some((item) => item.id === stored)) {
+    theme.value = stored
+  }
+  document.body.dataset.theme = theme.value
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKey)
   stopLoop()
+  if (biteTimeoutId) {
+    clearTimeout(biteTimeoutId)
+  }
+})
+
+watch(score, (next, prev) => {
+  if (next <= prev) return
+  bite.value = true
+  if (biteTimeoutId) clearTimeout(biteTimeoutId)
+  biteTimeoutId = setTimeout(() => {
+    bite.value = false
+  }, 200)
+})
+
+watch(theme, (next) => {
+  window.localStorage.setItem('snake-theme', next)
+  document.body.dataset.theme = next
 })
 </script>
 
@@ -106,27 +143,30 @@ onBeforeUnmount(() => {
   <main class="snake-app">
     <header class="snake-header">
       <div>
-        <p class="eyebrow">Classic Snake</p>
-        <h1>Stay on the grid.</h1>
+        <p class="eyebrow">经典贪吃蛇</p>
+        <h1>稳住节奏，别撞墙。</h1>
       </div>
       <div class="score-panel">
         <div class="score">
-          <span>Score</span>
+          <span>得分</span>
           <strong>{{ score }}</strong>
         </div>
         <div class="status" :data-status="status">
-          <span>{{ isDead ? 'Game over' : isPaused ? 'Paused' : 'Playing' }}</span>
+          <span>{{ isDead ? '游戏结束' : isPaused ? '暂停中' : '进行中' }}</span>
         </div>
       </div>
     </header>
 
     <section class="board-wrapper">
-      <div class="board" :style="boardStyle">
+      <div class="board" :class="{ bite }" :style="boardStyle">
         <div
           v-for="(segment, index) in state.snake"
           :key="`snake-${index}`"
           class="cell snake"
-          :class="{ head: index === 0 }"
+          :class="[
+            { head: index === 0 },
+            index === 0 ? `dir-${headDirection}` : `segment-${index % 3}`
+          ]"
           :style="cellStyle(segment)"
         ></div>
         <div
@@ -140,21 +180,36 @@ onBeforeUnmount(() => {
     <section class="controls">
       <div class="control-buttons">
         <button type="button" @click="togglePause">
-          {{ isPaused ? 'Resume' : 'Pause' }}
+          {{ isPaused ? '继续' : '暂停' }}
         </button>
         <button type="button" @click="restartGame">
-          Restart
+          重新开始
         </button>
       </div>
-      <p class="hint">Arrow keys / WASD to move. Space to pause. R or Enter to restart after game over.</p>
+      <div class="theme-row">
+        <span class="theme-label">主题</span>
+        <div class="theme-buttons">
+          <button
+            v-for="item in themes"
+            :key="item.id"
+            type="button"
+            class="theme-button"
+            :class="{ active: theme === item.id }"
+            @click="theme = item.id"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+      </div>
+      <p class="hint">方向键 / WASD 移动，空格暂停，游戏结束后按 R 或 Enter 重新开始。</p>
     </section>
 
     <section class="dpad">
-      <button class="pad" type="button" @click="setDirection(Direction.up)">Up</button>
+      <button class="pad" type="button" @click="setDirection(Direction.up)">上</button>
       <div class="pad-row">
-        <button class="pad" type="button" @click="setDirection(Direction.left)">Left</button>
-        <button class="pad" type="button" @click="setDirection(Direction.down)">Down</button>
-        <button class="pad" type="button" @click="setDirection(Direction.right)">Right</button>
+        <button class="pad" type="button" @click="setDirection(Direction.left)">左</button>
+        <button class="pad" type="button" @click="setDirection(Direction.down)">下</button>
+        <button class="pad" type="button" @click="setDirection(Direction.right)">右</button>
       </div>
     </section>
   </main>
